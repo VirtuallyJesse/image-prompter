@@ -1,0 +1,54 @@
+# Files that are ALWAYS included regardless of extension/size rules.
+# Use project-relative paths.
+always_include:
+  - "pyproject.toml"
+  - "src/config.py"
+  - ".env.example"
+  - "render.yaml"
+
+# Additional directories to exclude (merged with built-in list).
+exclude_dirs:
+  - "archive"
+  - "bak"
+  - "legacy"
+  - "scratch"
+  - "chats"
+  - "docs"
+  - ".commands"
+  - ".agent"
+  - ".cursor"
+  - ".kilocode"
+
+# Additional file extensions to exclude.
+exclude_extensions:
+  - ".csv"
+  - ".parquet"
+  - ".log"
+  - ".md"
+  - ".txt"
+
+# Additional exact filenames to exclude.
+exclude_files:
+  - ".env"
+  - "secrets.yaml"
+  - ".ctx.yaml"
+  - ".gitignore"
+
+# Glob patterns to exclude.
+exclude_patterns:
+  - "docs/**"
+  - "*.generated.*"
+  - "tests/fixtures/**"
+
+# Maximum file size in KB (default: 100).
+# Files larger than this are skipped.
+max_file_size_kb: 150
+
+# Optional: only include files with these extensions.
+# If set, ONLY these extensions are collected (still subject to excludes).
+# Leave commented out to include everything not excluded.
+# include_extensions:
+#   - ".py"
+#   - ".yaml"
+#   - ".toml"
+#   - ".md"
