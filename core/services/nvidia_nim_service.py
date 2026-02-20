@@ -7,12 +7,22 @@ class NvidiaNimWorker(BaseAIWorker):
     """
     Worker thread to handle streaming API calls to NVIDIA NIM via OpenAI SDK.
     """
-    def __init__(self, client, model_name, messages, enable_thinking=True):
+    # Model-specific thinking configurations
+    # Different models use different parameter names for thinking/reasoning
+    THINKING_CONFIGS = {
+        "deepseek-ai/deepseek-v3.2": {"thinking": True},
+        "moonshotai/kimi-k2-thinking": None,  # Thinking built into model
+        "moonshotai/kimi-k2.5": {"thinking": True},
+        "z-ai/glm4.7": {"enable_thinking": True, "clear_thinking": False},
+        "z-ai/glm5": {"enable_thinking": True, "clear_thinking": False},
+        "qwen/qwen3.5-397b-a17b": {"enable_thinking": True},
+    }
+
+    def __init__(self, client, model_name, messages):
         super().__init__()
         self.client = client
         self.model_name = model_name
         self.messages = messages
-        self.enable_thinking = enable_thinking
 
     def run(self):
         try:
@@ -23,10 +33,10 @@ class NvidiaNimWorker(BaseAIWorker):
                 "stream": True
             }
             
-            # Add thinking parameter for models that support it (DeepSeek, Kimi K2)
-            # Per NVIDIA NIM docs: must be wrapped in chat_template_kwargs
-            if self.enable_thinking:
-                request_params["extra_body"] = {"chat_template_kwargs": {"thinking": True}}
+            # Add model-specific thinking parameter if supported
+            thinking_config = self.THINKING_CONFIGS.get(self.model_name)
+            if thinking_config:
+                request_params["extra_body"] = {"chat_template_kwargs": thinking_config}
             
             # Use streaming API
             response_stream = self.client.chat.completions.create(**request_params)
@@ -142,5 +152,5 @@ class NvidiaNimService(BaseAIService):
         else:
             messages.append({"role": "user", "content": user_input})
 
-        worker = NvidiaNimWorker(self.client, api_model, messages, enable_thinking=True)
+        worker = NvidiaNimWorker(self.client, api_model, messages)
         self._start_worker(worker)
