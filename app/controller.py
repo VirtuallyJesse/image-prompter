@@ -8,6 +8,7 @@ from PyQt6.QtCore import pyqtSignal, QObject, QTimer
 
 from gui.main_window import MainWindow
 from core.config import ConfigManager
+from core.prompt_manager import PromptManager
 from core.services.file_service import FileService
 from core.services.gemini_service import GeminiService
 from core.services.nvidia_nim_service import NvidiaNimService
@@ -30,6 +31,7 @@ class ApplicationController(QObject):
         super().__init__()
         self.app = app
         self.config_manager = ConfigManager()
+        self.prompt_manager = PromptManager()
 
         self.file_service = FileService()
         self.services = {"Gemini": GeminiService(), "NVIDIA NIM": NvidiaNimService()}
@@ -56,12 +58,24 @@ class ApplicationController(QObject):
         self._connect_signals()
         self._initialize_ui()
 
+    def handle_display_toggled(self, new_fields: dict):
+        self.config_manager.display_fields = new_fields.copy()
+        self.config_manager.save()
+        self.main_window.response_panel.display_fields = new_fields.copy()
+        
+        # Re-render chat natively so UI instantly updates based on new toggles
+        current_chat_id = self.chat_history_service.get_current_chat_id()
+        if current_chat_id:
+            chat_data = {"messages": self.chat_history_service.get_current_messages()}
+            self._handle_chat_loaded(chat_data)
+
     def _connect_signals(self):
         abp = self.main_window.action_buttons_panel
         ip = self.main_window.input_panel
 
         abp.select_file_signal.connect(self.handle_select_file)
         abp.send_signal.connect(self.handle_send)
+        abp.display_toggled_signal.connect(self.handle_display_toggled)
         abp.interrupt_signal.connect(self.handle_interrupt)
         abp.service_model_selected_signal.connect(self.handle_service_model_selected)
         abp.new_chat_signal.connect(self.handle_new_chat)
@@ -80,6 +94,12 @@ class ApplicationController(QObject):
 
     def _initialize_ui(self):
         self._update_service_model_button_label()
+        
+        # Init display fields explicitly
+        if hasattr(self.config_manager, "display_fields"):
+            self.main_window.action_buttons_panel.set_display_fields(self.config_manager.display_fields)
+            self.main_window.response_panel.display_fields = self.config_manager.display_fields
+            
         self.chat_history_service.create_new_chat()
         self._update_navigation_buttons()
 
@@ -210,9 +230,15 @@ class ApplicationController(QObject):
         kwargs = {}
         if self.selected_service == "Gemini" and file_data_list:
             kwargs['files_data'] = file_data_list
+            
+        has_image = False
+        if file_data_list:
+            has_image = any(f['mime_type'].startswith('image/') for f in file_data_list)
+            
+        system_prompt = self.prompt_manager.get_prompt(self.selected_service, self.selected_model, has_image)
 
         active_service.generate_response(
-            self.config_manager.default_system_prompt, user_input,
+            system_prompt, user_input,
             self.selected_model, self.chat_history_service.get_current_messages()[:-1], **kwargs
         )
 

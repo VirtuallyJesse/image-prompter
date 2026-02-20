@@ -22,6 +22,7 @@ class ActionButtonsPanel(QWidget):
     delete_all_chats_signal = pyqtSignal()
     navigate_left_signal = pyqtSignal()
     navigate_right_signal = pyqtSignal()
+    display_toggled_signal = pyqtSignal(dict)
 
     # Service to available models mapping
     SERVICE_MODELS = {
@@ -83,6 +84,10 @@ class ActionButtonsPanel(QWidget):
         self.service_model_btn.installEventFilter(self)
         self.layout.addWidget(self.service_model_btn, stretch=2)
 
+        self.display_btn = make_btn("Display", self._btn_style(self.GREY))
+        self.display_btn.installEventFilter(self)
+        self.layout.addWidget(self.display_btn, stretch=1)
+
         chat_mgmt_widget = QWidget()
         chat_mgmt_layout = QGridLayout(chat_mgmt_widget)
         chat_mgmt_layout.setContentsMargins(0, 0, 0, 0)
@@ -142,11 +147,15 @@ class ActionButtonsPanel(QWidget):
         self.layout.addWidget(self.send_btn, stretch=2)
 
         # Set size policies
-        for btn in [self.service_model_btn, self.select_file_btn, self.send_btn]:
+        for btn in [self.service_model_btn, self.display_btn, self.select_file_btn, self.send_btn]:
             btn.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
-        # Create unified dropdown
+        # Create unified dropdowns
+        self._create_dropdowns()
+
+    def _create_dropdowns(self):
         self._create_unified_dropdown()
+        self._create_display_dropdown()
 
     def _create_unified_dropdown(self):
         """Create unified dropdown for service:model selection."""
@@ -173,6 +182,55 @@ class ActionButtonsPanel(QWidget):
         dropdown.installEventFilter(self)
         self.unified_dropdown = dropdown
 
+    def _create_display_dropdown(self):
+        """Create dropdown for display field toggling."""
+        parent_window = self.window() or None
+        dropdown = QWidget(parent_window)
+        dropdown.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        dropdown.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        dropdown.setStyleSheet("QWidget { background-color: #2a2a2a; border: 1px solid #555; border-radius: 4px; }")
+        layout = QVBoxLayout(dropdown)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+
+        self.display_checkboxes = {}
+        fields = [
+            "core", "composition", "lighting", "style", "technical", 
+            "post_processing", "special_elements", "detailed_prompt",
+            "grok_imagine_optimized", "gemini_optimized", "flux_optimized", 
+            "stable_diffusion_optimized", "video_optimized", "ooc_note"
+        ]
+        
+        self.display_fields = {}
+        
+        for field in fields:
+            btn = QPushButton(f"☑ {field}")
+            btn.setStyleSheet("""
+                QPushButton { background-color: transparent; color: white; border: none; text-align: left; padding: 4px 12px; font-size: 9pt; }
+                QPushButton:hover { background-color: #3d3d3d; }
+            """)
+            btn.clicked.connect(lambda checked, f=field: self._on_display_toggle(f))
+            layout.addWidget(btn)
+            self.display_checkboxes[field] = btn
+
+        dropdown.adjustSize()
+        dropdown.hide()
+        dropdown.installEventFilter(self)
+        self.display_dropdown = dropdown
+
+    def set_display_fields(self, fields: dict):
+        self.display_fields = fields.copy()
+        if hasattr(self, 'display_checkboxes'):
+            for field, btn in self.display_checkboxes.items():
+                is_checked = self.display_fields.get(field, True)
+                btn.setText(f"{'☑' if is_checked else '☐'} {field}")
+
+    def _on_display_toggle(self, field: str):
+        current = self.display_fields.get(field, True)
+        self.display_fields[field] = not current
+        self.set_display_fields(self.display_fields)
+        self.display_toggled_signal.emit(self.display_fields)
+
 
     def eventFilter(self, obj, event):
         """Handle hover events for dropdown menus and clear button positioning."""
@@ -186,12 +244,14 @@ class ActionButtonsPanel(QWidget):
         if et == QEvent.Type.Enter:
             if obj == self.service_model_btn:
                 self._show_dropdown("unified")
-            elif obj == self.unified_dropdown:
+            elif obj == self.display_btn:
+                self._show_dropdown("display")
+            elif obj in [self.unified_dropdown, self.display_dropdown]:
                 self.hide_timer.stop()
 
         # Leave events
         elif et == QEvent.Type.Leave:
-            if obj in [self.service_model_btn, self.unified_dropdown]:
+            if obj in [self.service_model_btn, self.unified_dropdown, self.display_btn, self.display_dropdown]:
                 self.hide_timer.start()
 
         return super().eventFilter(obj, event)
@@ -208,18 +268,21 @@ class ActionButtonsPanel(QWidget):
         self.clear_files_btn.setGeometry(x, y, clear_btn_size, clear_btn_size)
 
     def _show_dropdown(self, dropdown_type):
-        if dropdown_type != "unified": return
         if self._is_generating: return
         self.hide_timer.stop()
-        if self.active_dropdown and self.active_dropdown != self.unified_dropdown:
+        
+        target_dropdown = self.unified_dropdown if dropdown_type == "unified" else self.display_dropdown
+        target_btn = self.service_model_btn if dropdown_type == "unified" else self.display_btn
+        
+        if self.active_dropdown and self.active_dropdown != target_dropdown:
             self.active_dropdown.hide()
-        if self.active_dropdown == self.unified_dropdown: return
+        if self.active_dropdown == target_dropdown: return
 
-        self.active_dropdown = self.unified_dropdown
-        btn_global_pos = self.service_model_btn.mapToGlobal(self.service_model_btn.rect().topLeft())
-        self.unified_dropdown.move(btn_global_pos.x(), btn_global_pos.y() - self.unified_dropdown.height() - 2)
-        self.unified_dropdown.show()
-        self.unified_dropdown.raise_()
+        self.active_dropdown = target_dropdown
+        btn_global_pos = target_btn.mapToGlobal(target_btn.rect().topLeft())
+        target_dropdown.move(btn_global_pos.x(), btn_global_pos.y() - target_dropdown.height() - 2)
+        target_dropdown.show()
+        target_dropdown.raise_()
 
     def _hide_dropdown(self):
         if self.active_dropdown:
@@ -270,6 +333,7 @@ class ActionButtonsPanel(QWidget):
         self.new_chat_btn.setEnabled(not state)
         self.delete_chat_btn.setEnabled(not state)
         self.service_model_btn.setEnabled(not state)
+        self.display_btn.setEnabled(not state)
         
         if state:
             self._hide_dropdown()

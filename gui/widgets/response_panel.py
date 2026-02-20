@@ -148,6 +148,9 @@ class ResponsePanel(QWidget):
         # Track stream start position for re-rendering
         self._stream_start_cursor_pos = 0
         
+        # Display filtering parameters
+        self.display_fields = {}
+        
         # Color constants
         self.THINKING_COLOR = "#4ECDC4"  # Teal for thinking tokens
         self.ASSISTANT_COLOR = "#ffffff"  # White for regular response
@@ -243,8 +246,51 @@ class ResponsePanel(QWidget):
     def _insert_md(self, text: str, color: str, br: bool = True):
         if not text.strip(): return
         self.response_text.moveCursor(QTextCursor.MoveOperation.End)
-        html = f'<span style="color: {color};">{markdown.markdown(text, extensions=["extra", "codehilite", "nl2br"])}</span>'
+        
+        md_text = markdown.markdown(text, extensions=["extra", "codehilite", "nl2br"])
+        
+        # Override PyQt's default <pre> and <code> styles to preserve word wrap and maintain the app's font
+        md_text = md_text.replace("<pre>", "<pre style=\"white-space: pre-wrap; word-wrap: break-word; font-family: Consolas; font-size: 9pt; margin-top: 4px; margin-bottom: 4px;\">")
+        md_text = md_text.replace("<code>", "<code style=\"font-family: Consolas; font-size: 9pt;\">")
+        
+        html = f'<span style="color: {color};">{md_text}</span>'
         self.response_text.insertHtml(html + ('<br>' if br else ''))
+
+    def _filter_json_content(self, text: str) -> str:
+        """Filter raw JSON content strictly using toggle states"""
+        import json
+        import re
+        
+        if '{' not in text:
+            return text
+
+        def replace_json(match):
+            json_str = match.group(1)
+            try:
+                data = json.loads(json_str)
+                if isinstance(data, dict):
+                    filtered_data = {k: v for k, v in data.items() if self.display_fields.get(k, True)}
+                    return "```json\n" + json.dumps(filtered_data, indent=2) + "\n```"
+            except json.JSONDecodeError:
+                pass
+            return match.group(0)
+
+        # Execute replacement if a codeblock exists
+        if re.search(r'```(?:json)?\s*\{.*?\}\s*```', text, re.DOTALL):
+            return re.sub(r'```(?:json)?\s*(\{.*?\})\s*```', replace_json, text, flags=re.DOTALL)
+        
+        # Attempt raw JSON parse if entirely brackets
+        stripped = text.strip()
+        if stripped.startswith('{') and stripped.endswith('}'):
+            try:
+                data = json.loads(stripped)
+                if isinstance(data, dict):
+                    filtered_data = {k: v for k, v in data.items() if self.display_fields.get(k, True)}
+                    return "```json\n" + json.dumps(filtered_data, indent=2) + "\n```"
+            except json.JSONDecodeError:
+                pass
+                
+        return text
 
     def _rerender_stream_with_markdown(self):
         """Remove raw streamed text and replace with markdown-rendered version."""
@@ -254,7 +300,9 @@ class ResponsePanel(QWidget):
         cursor.removeSelectedText()
         
         self._insert_md(self._thinking_buffer, self.THINKING_COLOR, br=bool(self._stream_buffer.strip()))
-        self._insert_md(self._stream_buffer, self.ASSISTANT_COLOR, br=False)
+        
+        content = self._filter_json_content(self._stream_buffer)
+        self._insert_md(content, self.ASSISTANT_COLOR, br=False)
 
     def show_search(self):
         """Show the search widget."""
@@ -417,9 +465,12 @@ class ResponsePanel(QWidget):
         import re
         if match := re.search(r'<thinking>\n?(.*?)\n?</thinking>\n?', text, re.DOTALL):
             self._insert_md(match.group(1), self.THINKING_COLOR, br=bool(text.strip()))
-            self._insert_md(text[match.end():].lstrip('\n'), self.ASSISTANT_COLOR)
+            content = text[match.end():].lstrip('\n')
         else:
-            self._insert_md(text, self.ASSISTANT_COLOR)
+            content = text
+            
+        content = self._filter_json_content(content)
+        self._insert_md(content, self.ASSISTANT_COLOR)
 
     def scroll_to_bottom(self):
         """Scroll the response text to the bottom."""
