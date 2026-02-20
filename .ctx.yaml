@@ -37,6 +37,8 @@ exclude_files:
   - "prompts.json"
   - "start.bat"
   - "gui_config.json"
+  - "prompts_preamble.py"
+  - "prompts_build.py"
 
 # Glob patterns to exclude.
 exclude_patterns:
