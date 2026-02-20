@@ -65,8 +65,15 @@ class NvidiaNimService(BaseAIService):
     # Model mapping: GUI friendly name -> API model ID
     MODEL_MAP = {
         "DeepSeek V3.2": "deepseek-ai/deepseek-v3.2",
-        "Kimi K2": "moonshotai/kimi-k2-thinking"
+        "Kimi K2": "moonshotai/kimi-k2-thinking",
+        "Kimi K2.5": "moonshotai/kimi-k2.5",
+        "GLM-4.7": "z-ai/glm4.7",
+        "GLM-5": "z-ai/glm5",
+        "Qwen3.5-397B-A17B": "qwen/qwen3.5-397b-a17b",
     }
+
+    # Models that support image/vision input
+    VISION_MODELS = {"Kimi K2.5", "Qwen3.5-397B-A17B"}
 
     def __init__(self):
         super().__init__()
@@ -94,7 +101,14 @@ class NvidiaNimService(BaseAIService):
         """Generates a response using the NVIDIA NIM API in a background thread."""
         if not self.client:
             return self._emit_error("NVIDIA_NIM_API_KEY not found.")
-        if not user_input.strip():
+
+        files_data = kwargs.get('files_data', [])
+        is_vision = model_name in self.VISION_MODELS
+        has_images = is_vision and any(
+            f.get('mime_type', '').startswith('image/') for f in files_data
+        )
+
+        if not user_input.strip() and not has_images:
             return self._emit_error("Input cannot be empty.")
 
         api_model = self.MODEL_MAP.get(model_name, "deepseek-ai/deepseek-v3.2")
@@ -104,8 +118,29 @@ class NvidiaNimService(BaseAIService):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         if conversation_history:
-            messages.extend([{"role": m.get("role", ""), "content": m.get("content", "")} for m in conversation_history if m.get("content")])
-        messages.append({"role": "user", "content": user_input})
+            messages.extend([
+                {"role": m.get("role", ""), "content": m.get("content", "")}
+                for m in conversation_history if m.get("content")
+            ])
+
+        # Build user message: multipart content for vision models with images,
+        # plain text otherwise
+        if has_images:
+            content_parts = []
+            if user_input.strip():
+                content_parts.append({"type": "text", "text": user_input})
+            for file_data in files_data:
+                mime = file_data.get('mime_type', '')
+                if mime.startswith('image/'):
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime};base64,{file_data['base64']}"
+                        }
+                    })
+            messages.append({"role": "user", "content": content_parts})
+        else:
+            messages.append({"role": "user", "content": user_input})
 
         worker = NvidiaNimWorker(self.client, api_model, messages, enable_thinking=True)
         self._start_worker(worker)

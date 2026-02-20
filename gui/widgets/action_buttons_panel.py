@@ -27,8 +27,11 @@ class ActionButtonsPanel(QWidget):
     # Service to available models mapping
     SERVICE_MODELS = {
         "Gemini": ["Flash", "Pro"],
-        "NVIDIA NIM": ["DeepSeek V3.2", "Kimi K2"]
+        "NVIDIA NIM": ["DeepSeek V3.2", "Kimi K2", "Kimi K2.5", "GLM-4.7", "GLM-5", "Qwen3.5-397B-A17B"]
     }
+
+    # NVIDIA NIM models that support image/vision input
+    NIM_VISION_MODELS = {"Kimi K2.5", "Qwen3.5-397B-A17B"}
 
     SERVICE_MODEL_OPTIONS = [(s, m) for s, models in SERVICE_MODELS.items() for m in models]
 
@@ -302,18 +305,19 @@ class ActionButtonsPanel(QWidget):
 
     def _update_file_controls_state(self):
         """Update state of file controls based on current service and file selection."""
-        # Disable file selection for Nvidia Nim as it doesn't support attachments
-        is_nim = self.current_service == "NVIDIA NIM"
+        # Disable file selection for NVIDIA NIM models that don't support vision
+        no_file_support = (self.current_service == "NVIDIA NIM"
+                           and self.current_model not in self.NIM_VISION_MODELS)
         has_files = self.file_service.has_files()
         
-        self.select_file_btn.setEnabled(not is_nim and not self._is_generating)
+        self.select_file_btn.setEnabled(not no_file_support and not self._is_generating)
         
         if self._is_generating:
             # During generation, this is the Cancel button, so keep it enabled
             self.send_btn.setEnabled(True)
         elif has_files:
-            # Disable Send button if files attached and NVIDIA NIM selected
-            self.send_btn.setEnabled(not is_nim)
+            # Disable Send button if files attached and model doesn't support them
+            self.send_btn.setEnabled(not no_file_support)
         
         # Show/hide clear button based on file state
         self.clear_files_btn.setVisible(has_files)

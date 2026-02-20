@@ -35,6 +35,8 @@ exclude_files:
   - ".gitignore"
   - "celia.json"
   - "prompts.json"
+  - "start.bat"
+  - "gui_config.json"
 
 # Glob patterns to exclude.
 exclude_patterns:

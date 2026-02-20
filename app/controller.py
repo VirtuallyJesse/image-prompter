@@ -228,7 +228,7 @@ class ApplicationController(QObject):
         self._set_generating_state(True)
 
         kwargs = {}
-        if self.selected_service == "Gemini" and file_data_list:
+        if file_data_list:
             kwargs['files_data'] = file_data_list
             
         has_image = False

@@ -8,6 +8,7 @@ chats/
 gui_config.json
 ctx_dump.md
 ctx_pick.md
+celia_format.py
 
 # C extensions
 *.so
