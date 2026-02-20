@@ -8,7 +8,7 @@ from typing import Optional, List
 import html
 import markdown
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTextEdit, QSizePolicy, QLineEdit, QPushButton, QHBoxLayout
+    QWidget, QVBoxLayout, QTextEdit, QSizePolicy, QLineEdit, QPushButton, QHBoxLayout, QTextBrowser
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QTimer
 from PyQt6.QtGui import QKeyEvent, QTextCursor
@@ -113,8 +113,9 @@ class ResponsePanel(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(10)
 
-        self.response_text = QTextEdit()
-        self.response_text.setReadOnly(True)
+        self.response_text = QTextBrowser()
+        self.response_text.setOpenLinks(False)
+        self.response_text.anchorClicked.connect(self.handle_link_click)
         self.response_text.setPlainText("")
         self.response_text.setStyleSheet("background-color: #2a2a2a; color: #ffffff; border: 1px solid #333;")
         self.response_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
@@ -155,6 +156,9 @@ class ResponsePanel(QWidget):
         self.THINKING_COLOR = "#4ECDC4"  # Teal for thinking tokens
         self.ASSISTANT_COLOR = "#ffffff"  # White for regular response
         self.USER_COLOR = "#888888"  # Grey for user messages
+        
+        # Sentinel for JSON HTML blocks to bypass markdown processing
+        self._JSON_SENTINEL = "\x02JSON_TABLE\x03"
 
     def start_stream(self):
         """Prepare panel for streaming (add new message block)."""
@@ -256,41 +260,82 @@ class ResponsePanel(QWidget):
         html = f'<span style="color: {color};">{md_text}</span>'
         self.response_text.insertHtml(html + ('<br>' if br else ''))
 
+    def _insert_content(self, text: str, color: str):
+        """Insert content that may contain JSON HTML tables mixed with markdown text."""
+        if self._JSON_SENTINEL not in text:
+            self._insert_md(text, color, br=False)
+            return
+        
+        parts = text.split(self._JSON_SENTINEL)
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                # Text part — render as markdown
+                if part.strip():
+                    self._insert_md(part, color, br=False)
+            else:
+                # JSON HTML part — insert directly, no markdown processing
+                self.response_text.moveCursor(QTextCursor.MoveOperation.End)
+                self.response_text.insertHtml(part)
+
     def _filter_json_content(self, text: str) -> str:
-        """Filter raw JSON content strictly using toggle states"""
-        import json
+        """Filter raw JSON content strictly using toggle states and format visually."""
+        from core.json_helper import JsonHelper
         import re
         
         if '{' not in text:
             return text
 
         def replace_json(match):
-            json_str = match.group(1)
-            try:
-                data = json.loads(json_str)
-                if isinstance(data, dict):
-                    filtered_data = {k: v for k, v in data.items() if self.display_fields.get(k, True)}
-                    return "```json\n" + json.dumps(filtered_data, indent=2) + "\n```"
-            except json.JSONDecodeError:
-                pass
+            json_str = match.group(1) if len(match.groups()) > 0 else match.group(0)
+            data = JsonHelper.extract_and_parse_json(json_str)
+            if data and isinstance(data, dict):
+                return self._format_json_html(data)
             return match.group(0)
 
         # Execute replacement if a codeblock exists
         if re.search(r'```(?:json)?\s*\{.*?\}\s*```', text, re.DOTALL):
             return re.sub(r'```(?:json)?\s*(\{.*?\})\s*```', replace_json, text, flags=re.DOTALL)
         
-        # Attempt raw JSON parse if entirely brackets
+        # Attempt raw JSON parse if it looks like a JSON block
         stripped = text.strip()
         if stripped.startswith('{') and stripped.endswith('}'):
-            try:
-                data = json.loads(stripped)
-                if isinstance(data, dict):
-                    filtered_data = {k: v for k, v in data.items() if self.display_fields.get(k, True)}
-                    return "```json\n" + json.dumps(filtered_data, indent=2) + "\n```"
-            except json.JSONDecodeError:
-                pass
+            data = JsonHelper.extract_and_parse_json(stripped)
+            if data and isinstance(data, dict):
+                return self._format_json_html(data)
                 
         return text
+
+    def _format_json_html(self, data: dict) -> str:
+        import base64
+        import html as html_mod
+        import json
+        filtered_data = {k: v for k, v in data.items() if self.display_fields.get(k, True)}
+        if not filtered_data:
+            return ""
+
+        html_parts = [
+            self._JSON_SENTINEL,
+            '<table width="100%" cellspacing="0" cellpadding="10" style="border-collapse: collapse; background-color: #1e1e1e;">'
+        ]
+        
+        items = list(filtered_data.items())
+        for idx, (k, v) in enumerate(items):
+            if isinstance(v, (dict, list)):
+                val_str = json.dumps(v, indent=2)
+            else:
+                val_str = str(v)
+                
+            encoded_val = base64.b64encode(val_str.encode('utf-8')).decode('utf-8')
+            escaped_val = html_mod.escape(val_str).replace('\n', '<br>')
+            
+            border_bottom = 'border-bottom: 1px solid #333;' if idx < len(items) - 1 else ''
+            
+            row = f'<tr><td width="20%" style="{border_bottom} color: #4ECDC4; font-weight: bold; vertical-align: top; font-family: Consolas, monospace; font-size: 10pt; padding: 10px;">{html_mod.escape(str(k))}</td><td style="{border_bottom} vertical-align: top; font-family: Consolas, monospace; font-size: 10pt; padding: 10px;"><a href="copy:{encoded_val}" title="Click to copy" style="color: #e0e0e0; text-decoration: none;">{escaped_val}</a></td></tr>'
+            html_parts.append(row)
+            
+        html_parts.append('</table>')
+        html_parts.append(self._JSON_SENTINEL)
+        return "".join(html_parts)
 
     def _rerender_stream_with_markdown(self):
         """Remove raw streamed text and replace with markdown-rendered version."""
@@ -299,10 +344,10 @@ class ResponsePanel(QWidget):
         cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
         cursor.removeSelectedText()
         
-        self._insert_md(self._thinking_buffer, self.THINKING_COLOR, br=bool(self._stream_buffer.strip()))
+        self._insert_md(self._thinking_buffer.strip(), self.THINKING_COLOR, br=False)
         
-        content = self._filter_json_content(self._stream_buffer)
-        self._insert_md(content, self.ASSISTANT_COLOR, br=False)
+        content = self._filter_json_content(self._stream_buffer.strip())
+        self._insert_content(content, self.ASSISTANT_COLOR)
 
     def show_search(self):
         """Show the search widget."""
@@ -464,13 +509,15 @@ class ResponsePanel(QWidget):
     def append_assistant_message(self, text: str):
         import re
         if match := re.search(r'<thinking>\n?(.*?)\n?</thinking>\n?', text, re.DOTALL):
-            self._insert_md(match.group(1), self.THINKING_COLOR, br=bool(text.strip()))
-            content = text[match.end():].lstrip('\n')
+            self._insert_md(match.group(1).strip(), self.THINKING_COLOR, br=False)
+            content = text[match.end():].strip()
         else:
-            content = text
+            content = text.strip()
             
         content = self._filter_json_content(content)
-        self._insert_md(content, self.ASSISTANT_COLOR)
+        self._insert_content(content, self.ASSISTANT_COLOR)
+        self.response_text.moveCursor(QTextCursor.MoveOperation.End)
+        self.response_text.insertHtml("<br>")
 
     def scroll_to_bottom(self):
         """Scroll the response text to the bottom."""
@@ -480,3 +527,24 @@ class ResponsePanel(QWidget):
     def clear(self):
         """Clear the response area."""
         self.response_text.clear()
+
+    def handle_link_click(self, url):
+        """Handle clicking on a link."""
+        if url.scheme() == "copy":
+            import base64
+            from PyQt6.QtWidgets import QApplication
+            try:
+                encoded_text = url.toString().split(':', 1)[1]
+                decoded_text = base64.b64decode(encoded_text).decode('utf-8')
+                QApplication.clipboard().setText(decoded_text)
+                
+                # Notify the user via a status message
+                window = self.window()
+                if hasattr(window, 'status_signal'):
+                    window.status_signal.emit(f"Copied field value to clipboard! ({len(decoded_text)} characters)")
+            except Exception as e:
+                pass
+        else:
+            # Handle regular web links
+            import webbrowser
+            webbrowser.open(url.toString())
