@@ -33,6 +33,8 @@ exclude_files:
   - "secrets.yaml"
   - ".ctx.yaml"
   - ".gitignore"
+  - "celia.json"
+  - "prompts.json"
 
 # Glob patterns to exclude.
 exclude_patterns:

@@ -2,7 +2,13 @@
 trigger: always_on
 ---
 
-# Rules for LLM Agents - PyQt6 Chat Framework
+# Rules for LLM Agents - Image Assistant
+
+Image Assistant is a PyQt6 desktop application that transforms user ideas into detailed, optimized image generation prompts using AI models. The application supports multiple AI services (Gemini, NVIDIA NIM) and provides intelligent prompt generation for various image generation platforms.
+
+## 0. Critical Context Pollution Rule
+
+**NEVER attempt to read the files `celia.json` or `prompts.json` in the project root.** These files are LARGE and will pollute your context memory, severely degrading performance. These files contain system prompts and configuration data that are loaded programmatically by the application - they do not need to be read by LLM agents.
 
 ## 1. Project-Specific Coding Standards
 
@@ -23,20 +29,25 @@ trigger: always_on
 - Data files: Use descriptive names with appropriate extensions
 - Directory structure must follow the established project organization:
   - `app/` - Application layer (controller, main entry point)
-  - `core/` - Core framework components (config, services)
+  - `core/` - Core framework components (config, services, prompt_manager)
   - `gui/` - GUI layer (main window, views, widgets)
-  - `utils/` - Utility modules (threading, text processing)
+  - `utils/` - Utility modules (reserved for future use)
   - `docs/` - Documentation files
   - `assets/` - Static assets (icons)
+- Root-level data files:
+  - `prompts.json` - System prompts for each service/model (DO NOT READ - large file)
+  - `celia.json` - Additional prompt configuration (DO NOT READ - large file)
+  - `gui_config.json` - User preferences and settings
 
 ## 3. Key Architectural Patterns
 
 - **Layered Architecture**: Maintain strict separation between application layers (app/, core/, gui/, utils/)
 - **Application Layer (app/)**: Orchestrates components and manages application lifecycle with template methods for custom integration
-- **Core Layer (core/)**: Contains framework configuration, data definitions, and extensible structures for GUI components
-- **Service Layer (core/services/)**: Dedicated services for file handling, Gemini/NVIDIA NIM API integration, chat history management, and dynamic prompt generation to separate business logic from GUI
+- **Core Layer (core/)**: Contains framework configuration, data definitions, prompt management, and extensible structures for GUI components
+- **Service Layer (core/services/)**: Dedicated services for file handling, Gemini/NVIDIA NIM API integration, and chat history management to separate business logic from GUI
+- **Prompt Management (core/prompt_manager.py)**: Centralized system for managing system prompts per service/model with text/vision modality support
 - **GUI Layer (gui/)**: Handles user interface with PyQt6 signal/slot architecture, including modular widgets and view components
-- **Utility Layer (utils/)**: Provides general-purpose utilities for threading and text processing
+- **Utility Layer (utils/)**: Reserved for general-purpose utilities (currently minimal; threading is handled via QThread in core/services/base_service.py)
 - Implement threaded operations for background operations to prevent UI blocking
 - Use configuration-driven features rather than hardcoded values
 - Implement proper state management for UI elements and application data
@@ -87,7 +98,7 @@ trigger: always_on
 - Test drag-and-drop functionality for files and images
 - Test clipboard image paste (Ctrl+V) functionality
 - Test configuration loading and saving with various states including API keys
-- Test threading utilities and background operation handling for API calls
+- Test background operation handling for API calls (QThread-based workers in services)
 - Test widget interactions and signal/slot connections
 - Test layout management and responsive design
 - Test chat history saving, loading, and navigation
@@ -96,6 +107,15 @@ trigger: always_on
 - Test conversation context preservation across messages
 - Test system-model tethering functionality when switching between services with incompatible models
 - Test API key rotation with multiple Gemini keys
+- **Prompt Management Testing**:
+  - Test PromptManager loads prompts from prompts.json correctly
+  - Test fallback to default prompts when model-specific prompt not found
+  - Test text vs vision prompt selection based on image attachment
+- **Display Field Filtering Testing**:
+  - Test Display button dropdown shows all field toggles
+  - Test toggling fields updates visual display in response panel
+  - Test display field preferences persist in gui_config.json
+  - Test raw chat history saves complete output regardless of display filters
 
 ## 6. Common Pitfalls to Avoid
 
@@ -110,10 +130,17 @@ trigger: always_on
 
 ## 7. Data Models and Business Logic
 
-- Configuration is stored in gui_config.json with GUI settings like window geometry, theme preferences, API keys, and default model selections
+- Configuration is stored in gui_config.json with GUI settings like window geometry, theme preferences, API keys, default model selections, and display field toggles
 - Chat history is stored as JSON files in a 'chats' directory with message arrays, timestamps, and metadata (text data only, no file attachments)
-- System prompts are generated dynamically via `core/services/prompt_service.py` based on action type and file context (replaces static prompts from deprecated `core/system_prompts.json`)
-- Use the dynamic prompt generation system for new features requiring context-aware prompts
+- **Prompt Management**: System prompts are managed by `core/prompt_manager.py` (PromptManager class) which supports:
+  - Per-service and per-model prompt customization via `prompts.json`
+  - Separate prompts for text-only requests vs image-attached (vision) requests
+  - Fallback to default prompts when no model-specific prompt is defined
+  - Prompt format: `{"Service:Model": {"text": "...", "vision": "..."}, "default": {"text": "...", "vision": "..."}}`
+- **Display Field Filtering**: The `display_fields` configuration in gui_config.json controls which JSON output fields are visually rendered in the response panel:
+  - Fields include: `core`, `composition`, `lighting`, `style`, `technical`, `post_processing`, `special_elements`, `detailed_prompt`, `grok_imagine_optimized`, `gemini_optimized`, `flux_optimized`, `stable_diffusion_optimized`, `video_optimized`, `ooc_note`
+  - Toggled via the Display button dropdown in the action buttons panel
+  - Filtering is visual-only; raw chat history saves all output
 - Implement proper state management for UI elements, application data, and conversation context
 - Handle file data as base64 encoded strings for API transmission (temporary processing, not permanent storage) with size validation (15MB limit)
 - FileService supports multiple file uploads with list-based storage (`files_b64`, `filenames`)
@@ -131,7 +158,7 @@ trigger: always_on
 - **markdown** for CommonMark markdown rendering in response window
 - **Pygments** for syntax highlighting in markdown code blocks
 - **PyPDF2** for PDF file processing
-- **Threading module** for background operations with daemon threads
+- **QThread (PyQt6)** for background operations via BaseAIWorker in core/services/base_service.py
 - **JSON module** for configuration management and chat history storage
 - **base64 module** for file encoding for API transmission
 - **webbrowser module** for opening URLs
@@ -142,6 +169,39 @@ trigger: always_on
 - **GUI Settings**: Store window geometry, theme preferences, and basic UI settings
 - **State Persistence**: Save configuration on application exit and restore on startup
 - **Default Values**: Provide sensible defaults for all GUI configuration options
+- **Display Fields**: User preferences for which JSON output fields to display are stored in `display_fields` dict within gui_config.json
+
+## 9.1 Image Assistant Features
+
+Image Assistant transforms user ideas into detailed, optimized image generation prompts through three core features:
+
+### The Brain (Text-Only Prompts)
+- System prompts that instruct AI models to generate detailed JSON image prompts from user text input
+- Accessed via PromptManager with `has_image=False` parameter
+- Prompts stored in prompts.json under the "text" key for each service:model pair
+
+### The Eyes (Vision/Image-Attached Prompts)
+- System prompts for when users attach images with their requests
+- Instructs AI to analyze attached images and generate prompts describing or modifying them
+- Accessed via PromptManager with `has_image=True` parameter
+- Prompts stored in prompts.json under the "vision" key for each service:model pair
+
+### The Mouth (JSON Output Fields)
+The AI returns structured JSON with the following fields that can be toggled for display:
+- `core`: Subject details (physique, clothing, posture, expression, environment)
+- `composition`: Framing and layout (rule of thirds, layering, negative space)
+- `lighting`: Light setup (source, direction, color temperature, shadows)
+- `style`: Artistic direction (influences, color palette, texture)
+- `technical`: Camera specs (focal length, aperture, shutter speed, DoF)
+- `post_processing`: Editing effects (filters, color grading, sharpening)
+- `special_elements`: Effects (particles, reflections, distortions)
+- `detailed_prompt`: Full natural language description
+- `grok_imagine_optimized`: 60-75 token version for Grok
+- `gemini_optimized`: 90-105 token version for Gemini
+- `flux_optimized`: 140-150 token version for Flux
+- `stable_diffusion_optimized`: 150-200 token version for Stable Diffusion
+- `video_optimized`: 70-80 token action-centric version for image-to-video
+- `ooc_note`: Out-of-context notes or additional information
 
 ## 10. Error Handling and Resilience
 
@@ -150,10 +210,11 @@ trigger: always_on
 
 ## 11. LLM Agent Specific Warnings
 
+- **CRITICAL - Context Pollution**: NEVER read `celia.json` or `prompts.json` from the project root. These files are LARGE (30KB+ and 67KB+ respectively) and will severely degrade LLM performance by consuming context window space.
 - **Token-Heavy Files**: The following files contain large data structures and are token-intensive for LLM processing:
   - `app/controller.py` - Application orchestration with signal connections and business logic
-  - `gui/widgets/action_buttons_panel.py` - Contains service/model selection UI and button components
-  - `gui/widgets/response_panel.py` - Contains streaming display logic and search functionality
+  - `gui/widgets/action_buttons_panel.py` - Contains service/model selection UI, Display button, and dropdown components
+  - `gui/widgets/response_panel.py` - Contains streaming display logic, search functionality, and display field filtering
   - `core/services/gemini_service.py` - Contains API integration with key rotation and streaming
 - **Caution**: Only read these files if directly related to your task. Avoid unnecessary processing to conserve tokens and maintain efficiency.
 - **Testing Launch**: LLM agents can launch the program while testing with 'python -m app.main'.
