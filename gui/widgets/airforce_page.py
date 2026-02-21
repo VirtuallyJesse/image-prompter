@@ -1,6 +1,6 @@
-# gui/widgets/pollinations_page.py
+# gui/widgets/airforce_page.py
 """
-Pollinations Page - Image generation interface for the Pollinations AI API.
+Airforce Page - Image generation interface for the Airforce API.
 Provides controls for prompt, model, size, seed and displays generated images.
 """
 
@@ -16,18 +16,18 @@ from gui.widgets.image_gen_common import (
     ImageDisplay, INPUT_STYLE, BTN_GENERATE, BTN_CANCEL,
     BTN_DROPDOWN, make_dropdown,
 )
-from core.services.pollinations_service import PollinationsService
-from core.utils import reveal_file_in_explorer
+from core.services.airforce_service import AirforceService
+from core.utils import open_file
 
 
-class PollinationsPage(QWidget):
-    """Pollinations AI image generation page with controls and image display."""
+class AirforcePage(QWidget):
+    """Airforce AI image generation page with controls and image display."""
 
     status_updated = pyqtSignal(str)
 
-    MODELS = ["flux", "zimage", "klein", "klein-large", "gptimage"]
+    MODELS = ["grok-imagine", "imagen-4"]
     SIZES = ["1024x1024", "1344x768", "768x1344"]
-    DEFAULT_MODEL = "zimage"
+    DEFAULT_MODEL = "grok-imagine"
     DEFAULT_SIZE = "1024x1024"
     DEFAULT_SEED = -1
 
@@ -44,13 +44,15 @@ class PollinationsPage(QWidget):
         self.hide_timer.setInterval(250)
         self.hide_timer.timeout.connect(self._hide_dropdown)
 
-        self.service = PollinationsService()
+        self.service = AirforceService()
         self.service.image_generated.connect(self._on_image_generated)
         self.service.error_occurred.connect(self._on_error)
         self.service.status_updated.connect(self.status_updated.emit)
 
         self._build_ui()
         self._load_from_config()
+
+    # ------------------------------------------------------------------ UI
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -87,7 +89,7 @@ class PollinationsPage(QWidget):
         self.model_btn.setStyleSheet(BTN_DROPDOWN)
         self.model_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.model_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.model_btn.setMinimumWidth(90)
+        self.model_btn.setMinimumWidth(100)
         self.model_btn.installEventFilter(self)
         cl.addWidget(self.model_btn)
 
@@ -122,7 +124,7 @@ class PollinationsPage(QWidget):
             self, self.SIZES, self._on_size_selected, self
         )
 
-    # ---------------------------------------------------------------- Dropdowns
+    # -------------------------------------------------------------- Dropdowns
 
     def eventFilter(self, obj, event):
         et = event.type()
@@ -189,15 +191,13 @@ class PollinationsPage(QWidget):
         except ValueError:
             seed = -1
 
-        w, h = self.current_size.split("x")
         self._set_generating(True)
         self._save_to_config()
         self.service.generate_image(
             prompt=prompt,
             negative_prompt=self.negative_input.text().strip(),
             model=self.current_model,
-            width=int(w),
-            height=int(h),
+            size=self.current_size,
             seed=seed,
         )
 
@@ -232,51 +232,53 @@ class PollinationsPage(QWidget):
         super().hideEvent(event)
 
     def _on_image_clicked(self):
-        """Open file explorer and select the current image."""
+        """Open the current image with the system default viewer."""
         if self._current_image_path and os.path.isfile(self._current_image_path):
-            reveal_file_in_explorer(self._current_image_path)
+            open_file(self._current_image_path)
         else:
             self.status_updated.emit("Image file not found on disk.")
 
+    # ------------------------------------------------------------- Config
+
     def _save_to_config(self):
-        """Persist current Pollinations settings to config."""
+        """Persist current Airforce settings to config."""
         if not self.config_manager:
             return
-        self.config_manager.pollinations_positive_prompt = self.positive_input.text()
-        self.config_manager.pollinations_negative_prompt = self.negative_input.text()
-        self.config_manager.pollinations_model = self.current_model
-        self.config_manager.pollinations_size = self.current_size
+        self.config_manager.airforce_positive_prompt = self.positive_input.text()
+        self.config_manager.airforce_negative_prompt = self.negative_input.text()
+        self.config_manager.airforce_model = self.current_model
+        self.config_manager.airforce_size = self.current_size
         try:
-            self.config_manager.pollinations_seed = int(self.seed_input.text())
+            self.config_manager.airforce_seed = int(self.seed_input.text())
         except ValueError:
-            self.config_manager.pollinations_seed = self.DEFAULT_SEED
-        self.config_manager.pollinations_last_image = self._current_image_path
+            self.config_manager.airforce_seed = self.DEFAULT_SEED
+        self.config_manager.airforce_last_image = self._current_image_path
         self.config_manager.save()
 
     def _load_from_config(self):
-        """Load persisted Pollinations settings from config."""
+        """Load persisted Airforce settings from config."""
         if not self.config_manager:
             return
 
         self.positive_input.setText(
-            getattr(self.config_manager, 'pollinations_positive_prompt', ''))
+            getattr(self.config_manager, 'airforce_positive_prompt', ''))
         self.negative_input.setText(
-            getattr(self.config_manager, 'pollinations_negative_prompt', ''))
+            getattr(self.config_manager, 'airforce_negative_prompt', ''))
 
-        model = getattr(self.config_manager, 'pollinations_model', self.DEFAULT_MODEL)
+        model = getattr(self.config_manager, 'airforce_model', self.DEFAULT_MODEL)
         if model in self.MODELS:
             self.current_model = model
             self.model_btn.setText(model)
 
-        size = getattr(self.config_manager, 'pollinations_size', self.DEFAULT_SIZE)
+        size = getattr(self.config_manager, 'airforce_size', self.DEFAULT_SIZE)
         if size in self.SIZES:
             self.current_size = size
             self.size_btn.setText(size)
 
-        seed = getattr(self.config_manager, 'pollinations_seed', self.DEFAULT_SEED)
+        seed = getattr(self.config_manager, 'airforce_seed', self.DEFAULT_SEED)
         self.seed_input.setText(str(seed))
 
-        last_image = getattr(self.config_manager, 'pollinations_last_image', '')
+        last_image = getattr(self.config_manager, 'airforce_last_image', '')
         if last_image and os.path.isfile(last_image):
             self._current_image_path = last_image
             self.image_display.set_image(last_image)

@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 chats/
+images/
 
 gui_config.json
 ctx_dump.md

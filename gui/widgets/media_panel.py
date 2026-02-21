@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 from gui.widgets.pollinations_page import PollinationsPage
+from gui.widgets.airforce_page import AirforcePage
 
 
 class MediaPanel(QWidget):
@@ -75,6 +76,10 @@ class MediaPanel(QWidget):
                 self.pollinations_page = PollinationsPage(self.config_manager)
                 self.pollinations_page.status_updated.connect(self.status_updated.emit)
                 self._stack.addWidget(self.pollinations_page)
+            elif name == "Airforce":
+                self.airforce_page = AirforcePage(self.config_manager)
+                self.airforce_page.status_updated.connect(self.status_updated.emit)
+                self._stack.addWidget(self.airforce_page)
             else:
                 self._stack.addWidget(self._create_page(name))
 

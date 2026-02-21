@@ -8,10 +8,10 @@ import os
 import urllib.request
 import urllib.parse
 import urllib.error
-from datetime import datetime
-from pathlib import Path
 
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
+
+from core.utils import save_generated_image
 
 
 class PollinationsWorker(QThread):
@@ -74,8 +74,12 @@ class PollinationsWorker(QThread):
                 self.error.emit("Generation cancelled.")
                 return
 
-            filepath = self._save_image(image_data)
-            self.finished.emit(str(filepath))
+            filepath = save_generated_image(
+                image_data, self.prompt, self.negative_prompt,
+                self.model, f"{self.width}x{self.height}", self.seed,
+                "Pollinations",
+            )
+            self.finished.emit(filepath)
 
         except urllib.error.HTTPError as e:
             if not self._is_cancelled:
@@ -91,51 +95,6 @@ class PollinationsWorker(QThread):
         except Exception as e:
             if not self._is_cancelled:
                 self.error.emit(str(e))
-
-    def _save_image(self, image_data: bytes) -> Path:
-        """Save image data to disk, embedding metadata when possible."""
-        images_dir = Path("images")
-        images_dir.mkdir(exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filepath = images_dir / f"{timestamp}.jpg"
-        counter = 1
-        while filepath.exists():
-            filepath = images_dir / f"{timestamp}_{counter}.jpg"
-            counter += 1
-
-        metadata_str = (
-            f"Prompt: {self.prompt} | "
-            f"Negative: {self.negative_prompt or 'None'} | "
-            f"Model: {self.model} | "
-            f"Size: {self.width}x{self.height} | "
-            f"Seed: {self.seed} | "
-            f"Service: Pollinations"
-        )
-
-        saved_with_meta = False
-        try:
-            from PIL import Image
-            import io
-
-            img = Image.open(io.BytesIO(image_data))
-            if img.mode in ("RGBA", "P", "LA"):
-                img = img.convert("RGB")
-
-            exif = img.getexif()
-            exif[0x010E] = metadata_str       # ImageDescription
-            exif[0x0131] = "Pollinations AI"  # Software
-            img.save(str(filepath), "JPEG", quality=95, exif=exif.tobytes())
-            saved_with_meta = True
-        except Exception:
-            pass
-
-        if not saved_with_meta:
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-
-        return filepath
-
 
 class PollinationsService(QObject):
     """Service for Pollinations AI image generation."""

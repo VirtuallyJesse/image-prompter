@@ -17,6 +17,12 @@ _DEFAULTS = {
     "pollinations_size": "1024x1024",
     "pollinations_seed": -1,
     "pollinations_last_image": "",
+    "airforce_positive_prompt": "",
+    "airforce_negative_prompt": "",
+    "airforce_model": "grok-imagine",
+    "airforce_size": "1024x1024",
+    "airforce_seed": -1,
+    "airforce_last_image": "",
     "display_fields": {
         "core": True,
         "composition": True,
