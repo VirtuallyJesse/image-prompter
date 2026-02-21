@@ -9,6 +9,7 @@ _DEFAULTS = {
     "current_service": "Gemini",
     "current_model": "Flash",
     "default_system_prompt": "You are a helpful AI assistant.",
+    "splitter_sizes": [780, 420],
     "display_fields": {
         "core": True,
         "composition": True,

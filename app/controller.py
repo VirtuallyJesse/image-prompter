@@ -105,6 +105,8 @@ class ApplicationController(QObject):
 
     def run(self):
         self.main_window.resize(self.config_manager.window_width, self.config_manager.window_height)
+        if hasattr(self.config_manager, 'splitter_sizes'):
+            self.main_window.splitter.setSizes(self.config_manager.splitter_sizes)
         self.main_window.show()
         sys.exit(self.app.exec())
 
