@@ -23,6 +23,24 @@ _DEFAULTS = {
     "airforce_size": "1024x1024",
     "airforce_seed": -1,
     "airforce_last_image": "",
+    "perchance_url": "https://perchance.org/a1481832-0a06-414f-baa6-616052e5f61d",
+    "adblocker": {
+        "blocked_domains": [
+            "a.pub.network",
+            "d.pub.network",
+            "cdn.snigelweb.com",
+            "googletagmanager.com",
+            "cloudflareinsights.com",
+            "static.criteo.net",
+            "secure.quantserve.com",
+            "fundingchoicesmessages.google.com"
+        ],
+        "hidden_selectors": [
+            ".ad-providers-ctn-el",
+            "#adCtn",
+            "#pmLink"
+        ]
+    },
     "display_fields": {
         "core": True,
         "composition": True,

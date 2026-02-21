@@ -1,10 +1,10 @@
 # Rules for LLM Agents - Image Assistant
 
-Image Assistant is a PyQt6 desktop application that transforms user ideas into detailed, optimized image generation prompts using AI models. The application supports multiple AI services (Gemini, NVIDIA NIM) and provides intelligent prompt generation for various image generation platforms.
+Image Assistant is a PyQt6 desktop application that transforms user ideas into detailed, optimized image generation prompts using AI models. The application supports multiple AI services (Gemini, NVIDIA NIM) for prompt generation and provides direct image generation through integrated APIs (Pollinations, Airforce, Perchance) via the Media Panel.
 
 ## 0. Critical Context Pollution Rule
 
-**NEVER attempt to read the files `celia.json` or `prompts.json` in the project root.** These files are LARGE and will pollute your context memory, severely degrading performance. These files contain system prompts and configuration data that are loaded programmatically by the application - they do not need to be read by LLM agents.
+**NEVER attempt to read the files `celia_text.md`, `celia_vision.md`, `prompts.json`, `prompts_build.py`, or `prompts_preamble.py` in the project root.** These files are LARGE and will pollute your context memory, severely degrading performance. These files contain system prompts and configuration data that are loaded programmatically by the application - they do not need to be read by LLM agents.
 
 ## 1. Project-Specific Coding Standards
 
@@ -40,7 +40,7 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
 - **Layered Architecture**: Maintain strict separation between application layers (app/, core/, gui/, utils/)
 - **Application Layer (app/)**: Orchestrates components and manages application lifecycle with template methods for custom integration
 - **Core Layer (core/)**: Contains framework configuration, data definitions, prompt management, and extensible structures for GUI components
-- **Service Layer (core/services/)**: Dedicated services for file handling, Gemini/NVIDIA NIM API integration, and chat history management to separate business logic from GUI
+- **Service Layer (core/services/)**: Dedicated services for file handling, Gemini/NVIDIA NIM API integration, chat history management, and image generation APIs (Pollinations, Airforce, Perchance) to separate business logic from GUI
 - **Prompt Management (core/prompt_manager.py)**: Centralized system for managing system prompts per service/model with text/vision modality support
 - **GUI Layer (gui/)**: Handles user interface with PyQt6 signal/slot architecture, including modular widgets and view components
 - **Utility Layer (utils/)**: Reserved for general-purpose utilities (currently minimal; threading is handled via QThread in core/services/base_service.py)
@@ -70,6 +70,8 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
   - `GEMINI_API_KEY` - Single Gemini API key (backward compatible)
   - `GEMINI_ROTATE_API_KEY` - Comma-separated Gemini API keys for rate limit rotation
   - `NVIDIA_NIM_API_KEY` - NVIDIA NIM API key
+  - `POLLINATIONS_API_KEY` - Required for Pollinations image generation
+  - `AIRFORCE_API_KEY` - Required for Airforce image generation
 - Implement proper error handling for API rate limits, authentication failures, and network issues
 - Use background threading for all API calls to prevent UI blocking
 - Encode files to base64 for API transmission but do not store them permanently
@@ -86,6 +88,46 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
   - Display thinking tokens in Teal (`#4ECDC4`) to distinguish from final output
   - Save chat history only after the full stream (including thoughts) is complete
 - **API Key Rotation**: Gemini service supports automatic key rotation on 429 rate limit errors when multiple keys are configured via `GEMINI_ROTATE_API_KEY`
+
+## 4.2 Image Generation API Integration
+
+The Media Panel provides direct image generation through three external APIs:
+
+### Pollinations Service
+- **API**: Text-to-image API via URL-based requests
+- **Endpoint**: `https://gen.pollinations.ai/image`
+- **Authentication**: Required `POLLINATIONS_API_KEY` environment variable
+- **Models**: `flux`, `zimage`, `klein`, `klein-large`, `gptimage`
+- **Sizes**: `1024x1024`, `1344x768`, `768x1344`
+- **Features**: Negative prompts, seed control
+- **Implementation**: [`core/services/pollinations_service.py`](core/services/pollinations_service.py)
+
+### Airforce Service
+- **API**: OpenAI-compatible image generation API with SSE streaming
+- **Endpoint**: `https://api.airforce/v1/images/generations`
+- **Authentication**: Required `AIRFORCE_API_KEY` environment variable
+- **Models**: `grok-imagine`, `imagen-4`
+- **Sizes**: `1024x1024`, `1344x768`, `768x1344`
+- **Features**: SSE streaming responses, negative prompts, seed control, base64 response format
+- **Implementation**: [`core/services/airforce_service.py`](core/services/airforce_service.py)
+
+### Perchance Service
+- **Integration**: Embedded WebEngine view of Perchance image generator
+- **URL**: Configurable via `perchance_url` in config (default: `https://perchance.org/a1481832-0a06-414f-baa6-616052e5f61d`)
+- **Authentication**: Uses persistent WebEngine profile for cookie-based login
+- **Features**: 
+  - Two-layer ad blocking (network request interception + DOM element hiding)
+  - Persistent cookies and login state across sessions
+  - Automatic image download handling with EXIF metadata embedding
+  - Lazy URL loading on first tab view
+- **Dependencies**: Requires `PyQt6-WebEngine` (optional dependency)
+- **Implementation**: [`core/services/perchance_service.py`](core/services/perchance_service.py)
+
+### Image Generation Common Components
+- **ImageDisplay**: Custom QLabel widget for displaying generated images with click-to-reveal functionality
+- **Shared Styles**: Consistent styling constants for input fields, buttons, and dropdowns
+- **Dropdown Factory**: Hover-activated dropdown widgets for model/size selection
+- **Implementation**: [`gui/widgets/image_gen_common.py`](gui/widgets/image_gen_common.py)
 
 ## 5. Testing and Quality Requirements
 
@@ -112,6 +154,14 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
   - Test toggling fields updates visual display in response panel
   - Test display field preferences persist in gui_config.json
   - Test raw chat history saves complete output regardless of display filters
+- **Image Generation Testing**:
+  - Test Pollinations generation with various models and sizes
+  - Test Airforce generation with valid API key
+  - Test Perchance WebEngine loading and ad blocking
+  - Test image download and save with EXIF metadata
+  - Test click-to-reveal functionality in image display
+  - Test generation cancellation during active generation
+  - Test configuration persistence for each service's settings
 
 ## 6. Common Pitfalls to Avoid
 
@@ -144,11 +194,18 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
 - Template methods in controller provide extension points for custom business logic integration
 - Gemini API integration requires environment variable GEMINI_API_KEY or GEMINI_ROTATE_API_KEY for authentication
 - NVIDIA NIM API integration requires environment variable NVIDIA_NIM_API_KEY for authentication
+- **Image Generation Configuration**: Each service has dedicated configuration keys:
+  - Pollinations: `pollinations_positive_prompt`, `pollinations_negative_prompt`, `pollinations_model`, `pollinations_size`, `pollinations_seed`, `pollinations_last_image`
+  - Airforce: `airforce_positive_prompt`, `airforce_negative_prompt`, `airforce_model`, `airforce_size`, `airforce_seed`, `airforce_last_image`
+  - Perchance: `perchance_url`, `adblocker` (blocked_domains, hidden_selectors)
+- **Media Panel State**: `media_active_tab` stores the currently selected tab index (0=Gallery, 1=Pollinations, 2=Airforce, 3=Perchance)
+- **Generated Images**: Saved to `images/` directory with timestamp-based filenames and embedded EXIF metadata (prompt, model, size, seed, service)
 
 ## 8. Critical Dependencies
 
 - **PyQt6** for GUI implementation with signal/slot architecture
-- **Pillow (PIL)** for image processing with format detection
+- **PyQt6-WebEngine** (optional) for Perchance embedded browser integration
+- **Pillow (PIL)** for image processing with format detection and EXIF metadata embedding
 - **google-genai** for Gemini API integration and AI-powered chat
 - **openai** for NVIDIA NIM API integration (OpenAI-compatible endpoint)
 - **markdown** for CommonMark markdown rendering in response window
@@ -159,6 +216,7 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
 - **base64 module** for file encoding for API transmission
 - **webbrowser module** for opening URLs
 - **os and pathlib modules** for file system operations
+- **urllib module** for Pollinations and Airforce HTTP requests
 
 ## 9. Configuration Management
 
@@ -166,6 +224,12 @@ Image Assistant is a PyQt6 desktop application that transforms user ideas into d
 - **State Persistence**: Save configuration on application exit and restore on startup
 - **Default Values**: Provide sensible defaults for all GUI configuration options
 - **Display Fields**: User preferences for which JSON output fields to display are stored in `display_fields` dict within gui_config.json
+- **Media Panel Settings**:
+  - `media_active_tab`: Currently selected tab index (0-3)
+  - `pollinations_*`: Pollinations service settings (prompts, model, size, seed, last image)
+  - `airforce_*`: Airforce service settings (prompts, model, size, seed, last image)
+  - `perchance_url`: Custom Perchance generator URL
+  - `adblocker`: Dictionary with `blocked_domains` and `hidden_selectors` for Perchance ad blocking
 
 ## 9.1 Image Assistant Features
 
@@ -199,6 +263,31 @@ The AI returns structured JSON with the following fields that can be toggled for
 - `video_optimized`: 70-80 token action-centric version for image-to-video
 - `ooc_note`: Out-of-context notes or additional information
 
+## 9.2 Media Panel Features
+
+The Media Panel provides a secondary pane for direct image generation through integrated APIs:
+
+### Tab Navigation
+- **Gallery** (Tab 0): Placeholder for viewing generated images
+- **Pollinations** (Tab 1): Text-to-image generation (requires API key)
+- **Airforce** (Tab 2): Premium image generation with API key authentication
+- **Perchance** (Tab 3): Embedded WebEngine view with ad blocking
+
+### Common UI Components
+Each image generation page shares:
+- Positive/negative prompt input fields
+- Model selection dropdown (service-specific models)
+- Size selection dropdown (1024x1024, 1344x768, 768x1344)
+- Seed input (-1 for random)
+- Generate/Cancel button with state toggle
+- Image display with click-to-reveal in file explorer
+
+### Image Storage
+- Generated images saved to `images/` directory
+- Filename format: `YYYY-MM-DD_HH-MM-SS.jpg` (with counter for duplicates)
+- EXIF metadata embedded: prompt, negative prompt, model, size, seed, service
+- Click on displayed image opens file in system explorer
+
 ## 10. Error Handling and Resilience
 
 - **User Feedback**: Provide clear error messages and status updates for all operations
@@ -211,7 +300,10 @@ The AI returns structured JSON with the following fields that can be toggled for
   - `app/controller.py` - Application orchestration with signal connections and business logic
   - `gui/widgets/action_buttons_panel.py` - Contains service/model selection UI, Display button, and dropdown components
   - `gui/widgets/response_panel.py` - Contains streaming display logic, search functionality, and display field filtering
+  - `gui/widgets/pollinations_page.py` - Pollinations image generation UI with controls
+  - `gui/widgets/airforce_page.py` - Airforce image generation UI with controls
   - `core/services/gemini_service.py` - Contains API integration with key rotation and streaming
+  - `core/services/perchance_service.py` - WebEngine profile management and ad blocking logic
 - **Caution**: Only read these files if directly related to your task. Avoid unnecessary processing to conserve tokens and maintain efficiency.
 - **Testing Launch**: LLM agents can launch the program while testing with 'python -m app.main'.
 

@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
 from gui.widgets.pollinations_page import PollinationsPage
 from gui.widgets.airforce_page import AirforcePage
+from gui.widgets.perchance_page import PerchancePage
 
 
 class MediaPanel(QWidget):
@@ -80,6 +81,10 @@ class MediaPanel(QWidget):
                 self.airforce_page = AirforcePage(self.config_manager)
                 self.airforce_page.status_updated.connect(self.status_updated.emit)
                 self._stack.addWidget(self.airforce_page)
+            elif name == "Perchance":
+                self.perchance_page = PerchancePage(self.config_manager)
+                self.perchance_page.status_updated.connect(self.status_updated.emit)
+                self._stack.addWidget(self.perchance_page)
             else:
                 self._stack.addWidget(self._create_page(name))
 
