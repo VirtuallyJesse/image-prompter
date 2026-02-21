@@ -40,8 +40,7 @@ class ApplicationController(QObject):
         self.selected_service = getattr(self.config_manager, "current_service", "Gemini")
         self.selected_model = getattr(self.config_manager, "current_model", "Flash")
 
-        self.main_window = MainWindow(self.file_service)
-        self.main_window.config_manager = self.config_manager
+        self.main_window = MainWindow(self.file_service, self.config_manager)
 
         for service in self.services.values():
             service.response_generated.connect(self._handle_ai_response)
@@ -72,6 +71,9 @@ class ApplicationController(QObject):
     def _connect_signals(self):
         abp = self.main_window.action_buttons_panel
         ip = self.main_window.input_panel
+
+        # Media panel status → main status bar
+        self.main_window.media_panel.status_updated.connect(self.main_window.status_signal.emit)
 
         abp.select_file_signal.connect(self.handle_select_file)
         abp.send_signal.connect(self.handle_send)

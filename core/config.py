@@ -10,6 +10,13 @@ _DEFAULTS = {
     "current_model": "Flash",
     "default_system_prompt": "You are a helpful AI assistant.",
     "splitter_sizes": [780, 420],
+    "media_active_tab": 0,
+    "pollinations_positive_prompt": "",
+    "pollinations_negative_prompt": "",
+    "pollinations_model": "zimage",
+    "pollinations_size": "1024x1024",
+    "pollinations_seed": -1,
+    "pollinations_last_image": "",
     "display_fields": {
         "core": True,
         "composition": True,

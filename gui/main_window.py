@@ -17,9 +17,10 @@ class MainWindow(QMainWindow):
 
     status_signal = pyqtSignal(str)
 
-    def __init__(self, file_service):
+    def __init__(self, file_service, config_manager=None):
         super().__init__()
         self.file_service = file_service
+        self.config_manager = config_manager
         self.file_service.files_updated.connect(self._on_files_updated)
         self.file_service.status_updated.connect(self.status_signal.emit)
         self.file_service.files_cleared.connect(self._on_files_cleared)
@@ -65,7 +66,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(chat_pane)
 
         # Right pane: Media (tabbed image generation interface)
-        self.media_panel = MediaPanel()
+        self.media_panel = MediaPanel(self.config_manager)
         self.media_panel.setMinimumWidth(280)
         self.splitter.addWidget(self.media_panel)
 

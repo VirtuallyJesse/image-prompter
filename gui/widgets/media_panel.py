@@ -8,12 +8,15 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QStackedWidget, QLabel, QSizePolicy
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor
+from gui.widgets.pollinations_page import PollinationsPage
 
 
 class MediaPanel(QWidget):
     """Secondary pane with tabbed navigation for image generation API interfaces."""
+
+    status_updated = pyqtSignal(str)
 
     TAB_NAMES = ["Gallery", "Pollinations", "Airforce", "Perchance"]
 
@@ -30,12 +33,14 @@ class MediaPanel(QWidget):
         "Perchance": "Perchance image generation",
     }
 
-    def __init__(self, parent=None):
+    def __init__(self, config_manager=None, parent=None):
         super().__init__(parent)
+        self.config_manager = config_manager
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._current_tab = 0
         self._tabs = []
         self._build_ui()
+        self._load_active_tab()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -66,7 +71,12 @@ class MediaPanel(QWidget):
         self._stack.setStyleSheet("background-color: #2a2a2a; border: 1px solid #333;")
 
         for name in self.TAB_NAMES:
-            self._stack.addWidget(self._create_page(name))
+            if name == "Pollinations":
+                self.pollinations_page = PollinationsPage(self.config_manager)
+                self.pollinations_page.status_updated.connect(self.status_updated.emit)
+                self._stack.addWidget(self.pollinations_page)
+            else:
+                self._stack.addWidget(self._create_page(name))
 
         layout.addWidget(self._stack, 1)
         self._update_tab_styles()
@@ -102,6 +112,18 @@ class MediaPanel(QWidget):
         self._current_tab = index
         self._stack.setCurrentIndex(index)
         self._update_tab_styles()
+        if self.config_manager:
+            self.config_manager.media_active_tab = index
+            self.config_manager.save()
+
+    def _load_active_tab(self):
+        """Restore the last active tab from config."""
+        if self.config_manager:
+            tab = getattr(self.config_manager, 'media_active_tab', 0)
+            if 0 <= tab < len(self.TAB_NAMES):
+                self._current_tab = tab
+                self._stack.setCurrentIndex(tab)
+                self._update_tab_styles()
 
     def _update_tab_styles(self):
         """Update tab button visual styles based on active selection."""
