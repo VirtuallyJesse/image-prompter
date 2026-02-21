@@ -11,6 +11,8 @@ _DEFAULTS = {
     "default_system_prompt": "You are a helpful AI assistant.",
     "splitter_sizes": [780, 420],
     "media_active_tab": 0,
+    "gallery_page": 1,
+    "gallery_filter": "All",
     "pollinations_positive_prompt": "",
     "pollinations_negative_prompt": "",
     "pollinations_model": "zimage",

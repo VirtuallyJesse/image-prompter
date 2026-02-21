@@ -72,8 +72,13 @@ class MediaPanel(QWidget):
         self._stack = QStackedWidget()
         self._stack.setStyleSheet("background-color: #2a2a2a; border: 1px solid #333;")
 
+        from gui.widgets.gallery_page import GalleryPage
         for name in self.TAB_NAMES:
-            if name == "Pollinations":
+            if name == "Gallery":
+                self.gallery_page = GalleryPage(self.config_manager)
+                self.gallery_page.status_updated.connect(self.status_updated.emit)
+                self._stack.addWidget(self.gallery_page)
+            elif name == "Pollinations":
                 self.pollinations_page = PollinationsPage(self.config_manager)
                 self.pollinations_page.status_updated.connect(self.status_updated.emit)
                 self._stack.addWidget(self.pollinations_page)
@@ -122,6 +127,11 @@ class MediaPanel(QWidget):
         self._current_tab = index
         self._stack.setCurrentIndex(index)
         self._update_tab_styles()
+        
+        current_widget = self._stack.widget(index)
+        if hasattr(current_widget, "refresh"):
+            current_widget.refresh()
+            
         if self.config_manager:
             self.config_manager.media_active_tab = index
             self.config_manager.save()
