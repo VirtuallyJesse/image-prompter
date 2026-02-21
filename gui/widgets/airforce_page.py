@@ -17,7 +17,7 @@ from gui.widgets.image_gen_common import (
     BTN_DROPDOWN, make_dropdown,
 )
 from core.services.airforce_service import AirforceService
-from core.utils import open_file
+from core.utils import reveal_file_in_explorer
 
 
 class AirforcePage(QWidget):
@@ -232,9 +232,9 @@ class AirforcePage(QWidget):
         super().hideEvent(event)
 
     def _on_image_clicked(self):
-        """Open the current image with the system default viewer."""
+        """Open file explorer and select the current image."""
         if self._current_image_path and os.path.isfile(self._current_image_path):
-            open_file(self._current_image_path)
+            reveal_file_in_explorer(self._current_image_path)
         else:
             self.status_updated.emit("Image file not found on disk.")
 
