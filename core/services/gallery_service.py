@@ -14,6 +14,10 @@ class ImageMetadata:
     service: str
     model: str
     timestamp: str
+    negative_prompt: str = ""
+    size: str = ""
+    seed: str = ""
+    guidance_scale: str = ""
 
 
 class GalleryService:
@@ -53,7 +57,11 @@ class GalleryService:
         service = "Unknown"
         model = "Unknown"
         timestamp = filepath.stem
-        
+        negative_prompt = ""
+        size = ""
+        seed = ""
+        guidance_scale = ""
+
         try:
             from PIL import Image
             with Image.open(filepath) as img:
@@ -68,7 +76,18 @@ class GalleryService:
                             service = part[8:].strip()
                         elif part.startswith("Model:"):
                             model = part[6:].strip()
+                        elif part.startswith("Negative:"):
+                            negative_prompt = part[9:].strip()
+                        elif part.startswith("Size:"):
+                            size = part[5:].strip()
+                        elif part.startswith("Seed:"):
+                            seed = part[5:].strip()
+                        elif part.startswith("GuidanceScale:"):
+                            guidance_scale = part[14:].strip()
         except Exception:
             pass
-            
-        return ImageMetadata(str(filepath), prompt, service, model, timestamp)
+
+        return ImageMetadata(
+            str(filepath), prompt, service, model, timestamp,
+            negative_prompt, size, seed, guidance_scale,
+        )

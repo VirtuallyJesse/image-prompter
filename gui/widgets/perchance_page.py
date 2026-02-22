@@ -1,11 +1,11 @@
 # gui/widgets/perchance_page.py
 """
 Perchance Page – Embeds a Perchance image generator in a QWebEngineView
-with ad-blocking and persistent login / cookie storage.
+with ad-blocking, auto-download, and persistent login / cookie storage.
 """
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 
 from core.services.perchance_service import PerchanceService, is_webengine_available
 
@@ -20,9 +20,12 @@ class PerchancePage(QWidget):
 
     * Persistent cookie / login profile
     * Two-layer ad blocking (request interception + DOM hiding)
-    * Automatic image-download handling to ``images/``
+    * Menu bar hiding (``#menuBarEl``, ``--menu-bar-height``)
+    * Automatic image capture via postMessage interception
+    * Full EXIF metadata embedding (prompt, negative, size, seed, guidance)
+    * Manual download fallback with metadata from auto-download state
 
-    Falls back to a static label when PyQt6-WebEngine is not installed.
+    Falls back to a static placeholder when PyQt6-WebEngine is not installed.
     """
 
     status_updated = pyqtSignal(str)
@@ -36,6 +39,7 @@ class PerchancePage(QWidget):
         self._webview = None
         self._page = None
         self._url_loaded = False
+        self._poll_timer = None
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._build_ui()
@@ -53,7 +57,7 @@ class PerchancePage(QWidget):
 
         try:
             from PyQt6.QtWebEngineWidgets import QWebEngineView
-            from PyQt6.QtWebEngineCore import QWebEnginePage
+            from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
 
             # Persistent profile (cookies, ad-blocking, download handling)
             profile = self.service.create_profile(self)
@@ -64,12 +68,29 @@ class PerchancePage(QWidget):
             self._webview = QWebEngineView()
             self._page = QWebEnginePage(profile, self._webview)
             self._webview.setPage(self._page)
-
-            # Give service access to the page for JS prompt extraction
             self.service.set_page(self._page)
 
-            # Inject ad-hiding JS after each page load
+            # Inject auto-download script at PROFILE level with DocumentCreation
+            # timing.  This ensures every dynamically-created sub-frame
+            # (including image-generation.perchance.org iframes) receives the
+            # postMessage listener before any content executes.
+            script = QWebEngineScript()
+            script.setName("perchance_auto_download")
+            script.setSourceCode(self.service.get_auto_download_script())
+            script.setInjectionPoint(
+                QWebEngineScript.InjectionPoint.DocumentCreation
+            )
+            script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+            script.setRunsOnSubFrames(True)
+            profile.scripts().insert(script)
+
+            # Ad-hide + menu-bar-hide after page load
             self._webview.loadFinished.connect(self._on_load_finished)
+
+            # Poll timer drains the auto-download queue every second
+            self._poll_timer = QTimer(self)
+            self._poll_timer.setInterval(1000)
+            self._poll_timer.timeout.connect(self._poll_images)
 
             layout.addWidget(self._webview, 1)
 
@@ -122,9 +143,20 @@ class PerchancePage(QWidget):
             self._webview.setUrl(QUrl(url))
 
     def _on_load_finished(self, ok: bool):
-        """Inject ad-hiding JavaScript after the page finishes loading."""
+        """Inject ad-hiding CSS overrides and start the poll timer."""
         if not ok or not self._page:
             return
+
         script = self.service.get_ad_hide_script()
         if script:
             self._page.runJavaScript(script)
+
+        if self._poll_timer and not self._poll_timer.isActive():
+            self._poll_timer.start()
+
+    # ── Auto-download polling ───────────────────────────────────────────
+
+    def _poll_images(self):
+        """Drain the auto-download queue via the service."""
+        if self._page:
+            self.service.poll_image_queue()

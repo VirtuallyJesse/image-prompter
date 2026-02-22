@@ -129,3 +129,107 @@ Display toggling is visual-only; chat history saves complete output.
 | Ctrl+D | Delete all chats |
 | Ctrl+V | Paste image from clipboard |
 | Enter | Send message |
+
+## 11. Perchance Integration - Agent Guidelines
+
+Perchance requires a unique approach compared to other image generation services. It embeds an external website via Qt WebEngine rather than using a REST API.
+
+### Architecture Overview
+
+Perchance uses a **nested iframe structure**:
+1. **Top frame** (`perchance.org`) - Main page container
+2. **Generator frame** (`<hash>.perchance.org`) - Generator logic, has `#promptInput`
+3. **Image frames** (`image-generation.perchance.org`) - Actual image generation
+
+**Critical:** Cross-Origin Resource Sharing (CORS) prevents direct access between frames. Data must be passed via `postMessage()`.
+
+### Script Injection Strategy
+
+**Always inject at the PROFILE level, not the PAGE level:**
+
+```python
+# CORRECT: Profile-level injection with DocumentCreation timing
+script = QWebEngineScript()
+script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+script.setRunsOnSubFrames(True)
+profile.scripts().insert(script)
+
+# WRONG: Page-level injection misses dynamically created iframes
+page.scripts().insert(script)  # Will NOT work for Perchance
+```
+
+**Why:** Perchance dynamically creates image-generation iframes after the main page loads. `DocumentCreation` timing ensures the script is injected before any JavaScript executes in any frame.
+
+### Metadata Extraction
+
+Perchance stores generation metadata in **iframe URL hash fragments**, not in JavaScript variables:
+
+```javascript
+// Metadata is URL-encoded JSON in the iframe src hash
+// iframe.src = "https://image-generation.perchance.org/embed#%7B%22prompt%22%3A%22...%22%7D"
+var hashStr = iframe.src.split('#')[1];
+var meta = JSON.parse(decodeURIComponent(hashStr));
+// meta = { prompt: "...", negativePrompt: "...", seed: ..., guidanceScale: ... }
+```
+
+**Available fields:** `prompt`, `negativePrompt`, `resolution`, `guidanceScale`, `seedUsed`
+
+### Auto-Download Pipeline
+
+1. **JavaScript** intercepts `postMessage` events with `type: 'finished'`
+2. **JavaScript** extracts metadata from iframe URL hash
+3. **JavaScript** forwards data to top frame via `window.top.postMessage()`
+4. **Python** polls `window._perchanceImageQueue` via `runJavaScript()` every 1 second
+5. **Python** decodes base64 image data, embeds EXIF metadata, saves to `images/`
+
+### PyQt6 WebEngine Quirks
+
+**`javaScriptConsoleMessage` cannot be monkey-patched:**
+
+```python
+# WRONG: This does NOT work - C++ virtual method
+page.javaScriptConsoleMessage = my_handler  # No effect
+
+# CORRECT: Must subclass QWebEnginePage
+class MyPage(QWebEnginePage):
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        # Handle console messages here
+        pass
+```
+
+### Ad Blocking Layers
+
+Perchance uses **two-layer ad blocking**:
+
+1. **Network-level:** `QWebEngineUrlRequestInterceptor` blocks requests to ad domains
+2. **DOM-level:** JavaScript hides ad elements via CSS injection + MutationObserver
+
+**Menu bar hiding** requires CSS variable override:
+```javascript
+document.documentElement.style.setProperty('--menu-bar-height', '0px');
+```
+
+### Configuration
+
+| Key | Purpose |
+|-----|---------|
+| `perchance_url` | Custom generator URL (default: AI image generator) |
+| `adblocker.blocked_domains` | Network-level blocked domains |
+| `adblocker.hidden_selectors` | CSS selectors for DOM-level hiding |
+
+### Debugging Tips
+
+1. **Check frame injection:** Look for `[Perchance-AD] INJECTED` and `DIAG from sub-frame` logs
+2. **Verify iframe URLs:** Should show `image-generation.perchance.org/embed#%7B...%7D`
+3. **Monitor queue:** `[Perchance-AD] TOP: Queued image #N` indicates successful capture
+4. **Poll timer:** Must start after `loadFinished` signal, not in constructor
+
+### Common Pitfalls
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Script not in sub-frames | Page-level injection | Use profile-level injection |
+| Missing metadata | Wrong timing | Use `DocumentCreation` injection point |
+| CORS errors | Direct frame access | Use `postMessage()` for cross-frame communication |
+| Console messages not captured | Monkey-patch attempt | Subclass `QWebEnginePage` |
+| Menu bar still visible | CSS only | Also set `--menu-bar-height: 0px` |

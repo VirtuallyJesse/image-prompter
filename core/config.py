@@ -38,7 +38,9 @@ _DEFAULTS = {
         "hidden_selectors": [
             ".ad-providers-ctn-el",
             "#adCtn",
-            "#pmLink"
+            "#pmLink",
+            "#menuBarEl",
+            "#minimalModeMenuBtn"
         ]
     },
     "display_fields": {
