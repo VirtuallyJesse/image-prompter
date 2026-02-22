@@ -39,6 +39,7 @@ exclude_files:
   - "gui_config.json"
   - "prompts_preamble.py"
   - "prompts_build.py"
+  - "__init__.py"
 
 # Glob patterns to exclude.
 exclude_patterns:

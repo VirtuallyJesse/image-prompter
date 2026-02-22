@@ -22,8 +22,6 @@ _DEFAULTS = {
     "airforce_positive_prompt": "",
     "airforce_negative_prompt": "",
     "airforce_model": "grok-imagine",
-    "airforce_size": "1024x1024",
-    "airforce_seed": -1,
     "airforce_last_image": "",
     "perchance_url": "https://perchance.org/a1481832-0a06-414f-baa6-616052e5f61d",
     "adblocker": {

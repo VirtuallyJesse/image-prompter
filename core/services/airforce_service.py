@@ -24,13 +24,12 @@ class AirforceWorker(QThread):
 
     API_URL = "https://api.airforce/v1/images/generations"
 
-    def __init__(self, prompt, negative_prompt, model, size, seed):
+    def __init__(self, prompt, negative_prompt, model, size):
         super().__init__()
         self.prompt = prompt
         self.negative_prompt = negative_prompt
         self.model = model
         self.size = size
-        self.seed = seed
         self._is_cancelled = False
         self.api_key = os.environ.get("AIRFORCE_API_KEY", "")
 
@@ -60,8 +59,6 @@ class AirforceWorker(QThread):
 
             if self.negative_prompt:
                 payload["negative_prompt"] = self.negative_prompt
-            if self.seed != -1:
-                payload["seed"] = self.seed
 
             data_bytes = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
@@ -115,7 +112,7 @@ class AirforceWorker(QThread):
             image_bytes = base64.b64decode(b64_data)
             filepath = save_generated_image(
                 image_bytes, self.prompt, self.negative_prompt,
-                self.model, self.size, self.seed, "Airforce",
+                self.model, self.size, -1, "Airforce",
             )
             self.finished.emit(filepath)
 
@@ -162,7 +159,7 @@ class AirforceService(QObject):
         self.worker = None
 
     def generate_image(self, prompt, negative_prompt="", model="grok-imagine",
-                       size="1024x1024", seed=-1):
+                       size="1024x1024"):
         """Start image generation in a background thread."""
         if not prompt.strip():
             self.error_occurred.emit("Prompt cannot be empty.")
@@ -171,7 +168,7 @@ class AirforceService(QObject):
 
         self.status_updated.emit(f"Generating with {model} ({size})...")
 
-        self.worker = AirforceWorker(prompt, negative_prompt, model, size, seed)
+        self.worker = AirforceWorker(prompt, negative_prompt, model, size)
         self.worker.finished.connect(self._on_finished)
         self.worker.error.connect(self._on_error)
         self.worker.finished.connect(self.worker.deleteLater)

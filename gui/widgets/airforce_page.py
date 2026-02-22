@@ -1,7 +1,7 @@
 # gui/widgets/airforce_page.py
 """
 Airforce Page - Image generation interface for the Airforce API.
-Provides controls for prompt, model, size, seed and displays generated images.
+Provides controls for prompt, model and displays generated images.
 """
 
 from PyQt6.QtWidgets import (
@@ -26,23 +26,25 @@ class AirforcePage(QWidget):
     status_updated = pyqtSignal(str)
 
     MODELS = ["grok-imagine", "imagen-4"]
-    SIZES = ["1024x1024", "1344x768", "768x1344"]
     DEFAULT_MODEL = "grok-imagine"
-    DEFAULT_SIZE = "1024x1024"
-    DEFAULT_SEED = -1
+    FIXED_SIZE = "1024x1024"
 
     def __init__(self, config_manager=None, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
         self.current_model = self.DEFAULT_MODEL
-        self.current_size = self.DEFAULT_SIZE
         self._is_generating = False
         self._current_image_path = ""
+        self._cooldown_remaining = 0
 
         self.active_dropdown = None
         self.hide_timer = QTimer()
         self.hide_timer.setInterval(250)
         self.hide_timer.timeout.connect(self._hide_dropdown)
+
+        self._cooldown_timer = QTimer()
+        self._cooldown_timer.setInterval(1000)
+        self._cooldown_timer.timeout.connect(self._cooldown_tick)
 
         self.service = AirforceService()
         self.service.image_generated.connect(self._on_image_generated)
@@ -77,13 +79,13 @@ class AirforcePage(QWidget):
         self.positive_input.setPlaceholderText("Positive Prompt...")
         self.positive_input.setStyleSheet(INPUT_STYLE)
         self.positive_input.returnPressed.connect(self._on_generate_clicked)
-        cl.addWidget(self.positive_input, stretch=2)
+        cl.addWidget(self.positive_input, stretch=3)
 
         self.negative_input = QLineEdit()
         self.negative_input.setPlaceholderText("Negative Prompt...")
         self.negative_input.setStyleSheet(INPUT_STYLE)
         self.negative_input.returnPressed.connect(self._on_generate_clicked)
-        cl.addWidget(self.negative_input, stretch=1)
+        cl.addWidget(self.negative_input, stretch=2)
 
         self.model_btn = QPushButton(self.current_model)
         self.model_btn.setStyleSheet(BTN_DROPDOWN)
@@ -92,22 +94,6 @@ class AirforcePage(QWidget):
         self.model_btn.setMinimumWidth(100)
         self.model_btn.installEventFilter(self)
         cl.addWidget(self.model_btn)
-
-        self.size_btn = QPushButton(self.current_size)
-        self.size_btn.setStyleSheet(BTN_DROPDOWN)
-        self.size_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.size_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.size_btn.setMinimumWidth(90)
-        self.size_btn.installEventFilter(self)
-        cl.addWidget(self.size_btn)
-
-        self.seed_input = QLineEdit(str(self.DEFAULT_SEED))
-        self.seed_input.setStyleSheet(INPUT_STYLE)
-        self.seed_input.setFixedWidth(64)
-        self.seed_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.seed_input.setToolTip("Seed (-1 for random)")
-        self.seed_input.returnPressed.connect(self._on_generate_clicked)
-        cl.addWidget(self.seed_input)
 
         layout.addWidget(controls)
 
@@ -120,9 +106,6 @@ class AirforcePage(QWidget):
         self.model_dropdown = make_dropdown(
             self, self.MODELS, self._on_model_selected, self
         )
-        self.size_dropdown = make_dropdown(
-            self, self.SIZES, self._on_size_selected, self
-        )
 
     # -------------------------------------------------------------- Dropdowns
 
@@ -131,13 +114,10 @@ class AirforcePage(QWidget):
         if et == QEvent.Type.Enter:
             if obj == self.model_btn:
                 self._show_dropdown(self.model_dropdown, self.model_btn)
-            elif obj == self.size_btn:
-                self._show_dropdown(self.size_dropdown, self.size_btn)
-            elif obj in (self.model_dropdown, self.size_dropdown):
+            elif obj == self.model_dropdown:
                 self.hide_timer.stop()
         elif et == QEvent.Type.Leave:
-            if obj in (self.model_btn, self.size_btn,
-                       self.model_dropdown, self.size_dropdown):
+            if obj in (self.model_btn, self.model_dropdown):
                 self.hide_timer.start()
         return super().eventFilter(obj, event)
 
@@ -166,11 +146,29 @@ class AirforcePage(QWidget):
         self._hide_dropdown()
         self._save_to_config()
 
-    def _on_size_selected(self, size: str):
-        self.current_size = size
-        self.size_btn.setText(size)
-        self._hide_dropdown()
-        self._save_to_config()
+    # ------------------------------------------------------------ Cooldown
+
+    def _start_cooldown(self):
+        """Start a 60-second visual cooldown reminder on the Generate button."""
+        self._cooldown_remaining = 60
+        self._update_generate_label()
+        self._cooldown_timer.start()
+
+    def _cooldown_tick(self):
+        self._cooldown_remaining -= 1
+        if self._cooldown_remaining <= 0:
+            self._cooldown_remaining = 0
+            self._cooldown_timer.stop()
+        self._update_generate_label()
+
+    def _update_generate_label(self):
+        """Set the Generate button text, appending cooldown if active."""
+        if self._is_generating:
+            return  # button shows "Cancel" during generation
+        if self._cooldown_remaining > 0:
+            self.generate_btn.setText(f"Generate ({self._cooldown_remaining})")
+        else:
+            self.generate_btn.setText("Generate")
 
     # ------------------------------------------------------------ Generation
 
@@ -186,25 +184,20 @@ class AirforcePage(QWidget):
             self.status_updated.emit("Error: Positive prompt cannot be empty.")
             return
 
-        try:
-            seed = int(self.seed_input.text().strip())
-        except ValueError:
-            seed = -1
-
         self._set_generating(True)
         self._save_to_config()
         self.service.generate_image(
             prompt=prompt,
             negative_prompt=self.negative_input.text().strip(),
             model=self.current_model,
-            size=self.current_size,
-            seed=seed,
+            size=self.FIXED_SIZE,
         )
 
     def _on_image_generated(self, filepath: str):
         self._set_generating(False)
         self._current_image_path = filepath
         self.image_display.set_image(filepath)
+        self._start_cooldown()
         self._save_to_config()
 
     def _on_error(self, _error_msg: str):
@@ -215,16 +208,14 @@ class AirforcePage(QWidget):
         self.positive_input.setEnabled(not state)
         self.negative_input.setEnabled(not state)
         self.model_btn.setEnabled(not state)
-        self.size_btn.setEnabled(not state)
-        self.seed_input.setEnabled(not state)
 
         if state:
             self._hide_dropdown()
             self.generate_btn.setText("Cancel")
             self.generate_btn.setStyleSheet(BTN_CANCEL)
         else:
-            self.generate_btn.setText("Generate")
             self.generate_btn.setStyleSheet(BTN_GENERATE)
+            self._update_generate_label()
 
     def hideEvent(self, event):
         """Close dropdowns when page is hidden (tab switch)."""
@@ -247,11 +238,6 @@ class AirforcePage(QWidget):
         self.config_manager.airforce_positive_prompt = self.positive_input.text()
         self.config_manager.airforce_negative_prompt = self.negative_input.text()
         self.config_manager.airforce_model = self.current_model
-        self.config_manager.airforce_size = self.current_size
-        try:
-            self.config_manager.airforce_seed = int(self.seed_input.text())
-        except ValueError:
-            self.config_manager.airforce_seed = self.DEFAULT_SEED
         self.config_manager.airforce_last_image = self._current_image_path
         self.config_manager.save()
 
@@ -269,14 +255,6 @@ class AirforcePage(QWidget):
         if model in self.MODELS:
             self.current_model = model
             self.model_btn.setText(model)
-
-        size = getattr(self.config_manager, 'airforce_size', self.DEFAULT_SIZE)
-        if size in self.SIZES:
-            self.current_size = size
-            self.size_btn.setText(size)
-
-        seed = getattr(self.config_manager, 'airforce_seed', self.DEFAULT_SEED)
-        self.seed_input.setText(str(seed))
 
         last_image = getattr(self.config_manager, 'airforce_last_image', '')
         if last_image and os.path.isfile(last_image):
