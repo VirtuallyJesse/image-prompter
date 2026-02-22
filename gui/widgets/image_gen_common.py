@@ -4,9 +4,11 @@ Shared components for image generation pages.
 Provides ImageDisplay widget, UI style constants, and dropdown factory.
 """
 
+from collections import OrderedDict
+
 from PyQt6.QtWidgets import QLabel, QSizePolicy, QWidget, QVBoxLayout, QPushButton
-from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QCursor, QPixmap
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtGui import QCursor, QPixmap, QImageReader
 
 
 # ── Shared style constants ─────────────────────────────────────────────────
@@ -66,33 +68,105 @@ DROPDOWN_CONTAINER = (
 # ── Shared widgets ──────────────────────────────────────────────────────────
 
 class ImageDisplay(QLabel):
-    """Custom label that displays an image fully contained, never cropped."""
+    """Custom label that displays an image fully contained, never cropped.
+
+    When *gallery_mode* is True, images are loaded at a reduced resolution
+    (max 400 px on either axis) and kept in a class-level LRU pixmap cache
+    so that page navigation is near-instant.  Resize events are also
+    throttled to avoid redundant scaling during window drag.
+    """
 
     clicked = pyqtSignal()
+    right_clicked = pyqtSignal()
 
-    def __init__(self, parent=None):
+    # Class-level LRU pixmap cache shared by all gallery-mode instances
+    _gallery_cache: OrderedDict = OrderedDict()
+    _GALLERY_CACHE_MAX = 72        # ~6 pages of 12 items
+    _GALLERY_LOAD_SIZE = 400       # max px on either axis when loading
+
+    def __init__(self, parent=None, gallery_mode=False):
         super().__init__(parent)
         self._pixmap = None
+        self._filepath = ""
+        self._gallery_mode = gallery_mode
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(64, 64)
         self.setStyleSheet("background-color: #121212; border: none;")
 
+        if gallery_mode:
+            self._resize_timer = QTimer(self)
+            self._resize_timer.setSingleShot(True)
+            self._resize_timer.setInterval(50)
+            self._resize_timer.timeout.connect(self._update_display)
+
+    # ── public API ──────────────────────────────────────────────────────
+
     def set_image(self, filepath: str):
-        """Load and display an image from file path."""
-        self._pixmap = QPixmap(filepath)
+        """Load and display an image from *filepath*."""
+        if filepath == self._filepath and self._pixmap is not None:
+            return                                       # already showing this image
+        self._filepath = filepath
+
+        if self._gallery_mode:
+            cached = ImageDisplay._gallery_cache.get(filepath)
+            if cached is not None:
+                self._pixmap = cached
+                ImageDisplay._gallery_cache.move_to_end(filepath)
+            else:
+                self._pixmap = self._load_scaled(filepath, self._GALLERY_LOAD_SIZE)
+                if len(ImageDisplay._gallery_cache) >= ImageDisplay._GALLERY_CACHE_MAX:
+                    ImageDisplay._gallery_cache.popitem(last=False)
+                ImageDisplay._gallery_cache[filepath] = self._pixmap
+        else:
+            self._pixmap = QPixmap(filepath)
+
         self._update_display()
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def clear_image(self):
         self._pixmap = None
+        self._filepath = ""
         self.clear()
         self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
+    # ── events ──────────────────────────────────────────────────────────
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._pixmap:
-            self.clicked.emit()
+        if self._pixmap:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.clicked.emit()
+            elif event.button() == Qt.MouseButton.RightButton:
+                self.right_clicked.emit()
         super().mousePressEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._pixmap:
+            if self._gallery_mode:
+                self._resize_timer.start()               # throttled
+            else:
+                self._update_display()
+
+    # ── internals ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _load_scaled(filepath: str, max_dim: int) -> QPixmap:
+        """Load an image at reduced resolution via QImageReader.
+
+        Leverages JPEG's built-in DCT scaling so the decoder never
+        decompresses full-resolution pixel data.
+        """
+        reader = QImageReader(filepath)
+        reader.setAutoTransform(True)
+        orig_size = reader.size()
+        if orig_size.isValid() and (orig_size.width() > max_dim or orig_size.height() > max_dim):
+            scaled_size = orig_size.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio)
+            reader.setScaledSize(scaled_size)
+        image = reader.read()
+        if not image.isNull():
+            return QPixmap.fromImage(image)
+        return QPixmap(filepath)                         # fallback
 
     def _update_display(self):
         if self._pixmap and not self._pixmap.isNull():
@@ -102,10 +176,6 @@ class ImageDisplay(QLabel):
                 Qt.TransformationMode.SmoothTransformation,
             )
             self.setPixmap(scaled)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_display()
 
 
 # ── Shared helpers ──────────────────────────────────────────────────────────

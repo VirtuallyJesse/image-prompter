@@ -6,13 +6,50 @@ Provides tabbed navigation for different image generation APIs.
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QStackedWidget, QLabel, QSizePolicy
+    QStackedWidget, QLabel, QSizePolicy, QApplication,
+    QLineEdit, QTextEdit, QPlainTextEdit
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QEvent
 from PyQt6.QtGui import QCursor
 from gui.widgets.pollinations_page import PollinationsPage
 from gui.widgets.airforce_page import AirforcePage
 from gui.widgets.perchance_page import PerchancePage
+
+
+class MediaPanelHotkeysFilter(QObject):
+    def __init__(self, panel):
+        super().__init__(panel)
+        self.panel = panel
+        
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                focused = QApplication.focusWidget()
+                if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                    return False
+                if self.panel.rect().contains(self.panel.mapFromGlobal(QCursor.pos())):
+                    stack = self.panel._stack
+                    current = stack.currentWidget()
+                    if current and hasattr(current, "set_page") and hasattr(current, "current_page"):
+                        delta = -1 if event.key() == Qt.Key.Key_Left else 1
+                        current.set_page(current.current_page + delta)
+                        return True
+        elif event.type() == QEvent.Type.Wheel:
+            if self.panel.rect().contains(self.panel.mapFromGlobal(QCursor.pos())):
+                stack = self.panel._stack
+                current = stack.currentWidget()
+                if current and hasattr(current, "set_page") and hasattr(current, "current_page"):
+                    delta = -1 if event.angleDelta().y() > 0 else 1
+                    current.set_page(current.current_page + delta)
+                    return True
+        elif event.type() == QEvent.Type.MouseButtonPress:
+            focused = QApplication.focusWidget()
+            if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                if self.panel.rect().contains(self.panel.mapFromGlobal(QCursor.pos())):
+                    widget_clicked = QApplication.widgetAt(QCursor.pos())
+                    if not isinstance(widget_clicked, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                        focused.clearFocus()
+        return False
 
 
 class MediaPanel(QWidget):
@@ -37,12 +74,16 @@ class MediaPanel(QWidget):
 
     def __init__(self, config_manager=None, parent=None):
         super().__init__(parent)
+        self.setObjectName("MediaPanel")
         self.config_manager = config_manager
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._current_tab = 0
         self._tabs = []
         self._build_ui()
         self._load_active_tab()
+        
+        self.hotkeys_filter = MediaPanelHotkeysFilter(self)
+        QApplication.instance().installEventFilter(self.hotkeys_filter)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
